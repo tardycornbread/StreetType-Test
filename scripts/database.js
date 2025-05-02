@@ -150,7 +150,7 @@ export default class LetterDatabase {
 
     // FIXED: Construct path based on actual folder structure
     // Remove the letter folder from the path
-    const path = `assets/Alphabet/cities/${location}/alphabet/${letter}/${styleDir}-${caseType}/${idx}.jpg`;
+    const path = `../assets/Alphabet/cities/${location}/alphabet/${letter}/${styleDir}-${caseType}/${idx}.jpg`;
     
     console.log(`[PATH BUILD] Generated path: ${path}`);
     return path;
