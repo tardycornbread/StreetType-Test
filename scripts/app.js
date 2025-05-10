@@ -1,45 +1,17 @@
-// app.js
+// app.js - Fixed version (using older architecture)
 import LetterDatabase from './database.js';
 import LetterSelector from './letterSelector.js';
 import VisualRenderer from './renderer.js';
+import { createLogger, debounce } from './utils.js';
+import config from './config.js';
 
-// Add logging function for better debugging
-function logToConsole(message, data = null) {
-  const timestamp = new Date().toISOString().substring(11, 23);
-  const prefix = `[${timestamp}][STREETTYPE]`;
-  
-  if (data) {
-    console.log(`${prefix} ${message}`, data);
-  } else {
-    console.log(`${prefix} ${message}`);
-  }
-}
+// Create logger
+const logger = createLogger('StreetType', config.debug.enabled);
 
-// Test file path existence function
-function testFilePath(path) {
-  logToConsole(`Testing path: ${path}`);
+document.addEventListener('DOMContentLoaded', async () => {
+  logger.log("Application starting...");
   
-  return new Promise(resolve => {
-    const img = new Image();
-    
-    img.onload = () => {
-      logToConsole(`SUCCESS: Path exists: ${path}, dimensions: ${img.width}x${img.height}`);
-      resolve(true);
-    };
-    
-    img.onerror = () => {
-      logToConsole(`ERROR: Path does not exist: ${path}`);
-      resolve(false);
-    };
-    
-    img.src = path;
-  });
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-  logToConsole("Application starting...");
-  
-  // Grab controls
+  // Grab controls and containers
   const userTextInput     = document.getElementById('user-text');
   const fontStyleSelect   = document.getElementById('font-style');
   const locationSelect    = document.getElementById('location');
@@ -48,50 +20,25 @@ document.addEventListener('DOMContentLoaded', () => {
   const exportBtn         = document.getElementById('export-btn');
   const shareBtn          = document.getElementById('share-btn');
   const outputContainer   = document.getElementById('output-container');
+  const canvasContainer   = document.getElementById('p5-canvas-container');
+  const testPathsBtn      = document.getElementById('test-paths-btn');
+  const fontSizeToggle    = document.getElementById('size-toggle');
 
-  logToConsole("UI controls initialized");
+  // Disable buttons initially
+  if (exportBtn) exportBtn.disabled = true;
+  if (shareBtn) shareBtn.disabled = true;
 
-  // Initialize database, selector, and renderer
+  // Instantiate your classes - DIRECT INITIALIZATION like the old version
   const database = new LetterDatabase();
   const selector = new LetterSelector(database);
   const renderer = new VisualRenderer('p5-canvas-container');
 
-  logToConsole("Core components initialized");
+  // Initialize font size from config
+  let currentFontSize = config.defaults.fontSize || 'small';
   
-  // Test folder structure function
-  window.testFolderStructure = async function() {
-    logToConsole("=== TESTING FOLDER STRUCTURE ===");
-    
-    // Test base assets folder
-    await testFilePath('assets');
-    
-    // Test Alphabet folder
-    await testFilePath('assets/Alphabet');
-    
-    // Test cities folder
-    await testFilePath('assets/Alphabet/cities');
-    
-    // Test NYC folder
-    await testFilePath('assets/Alphabet/cities/NYC');
-    
-    // Test alphabet folder
-    await testFilePath('assets/Alphabet/cities/NYC/alphabet');
-    
-    // Test A folder
-    await testFilePath('assets/Alphabet/cities/NYC/alphabet/A');
-    
-    // Test style folder
-    await testFilePath('assets/Alphabet/cities/NYC/alphabet/A/sans-upper');
-    
-    // Test actual image file
-    await testFilePath('assets/Alphabet/cities/NYC/alphabet/A/sans-upper/01.jpg');
-    
-    logToConsole("=== FOLDER STRUCTURE TEST COMPLETE ===");
-  };
-
   // Show loading indicator
   function showLoading() {
-    logToConsole("Showing loading indicator");
+    logger.log("Showing loading indicator");
     // Create a loading indicator
     const loadingEl = document.createElement('div');
     loadingEl.className = 'loading-indicator';
@@ -115,7 +62,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Hide loading indicator
   function hideLoading() {
-    logToConsole("Hiding loading indicator");
+    logger.log("Hiding loading indicator");
     // Clear the loading indicator
     if (outputContainer) {
       outputContainer.innerHTML = '';
@@ -128,130 +75,221 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  async function updateCanvas() {
-    // Show loading state
-    showLoading();
-    logToConsole("Starting typography generation");
+  // Show error message in the UI
+  function showErrorMessage(container, message, isWarning = false) {
+    if (!container) return;
     
-    try {
-      // Log the input values
-      logToConsole("Input values:", {
-        text: userTextInput.value || 'Type something...',
-        style: fontStyleSelect.value,
-        city: locationSelect.value,
-        caseOption: caseOptionSelect.value
-      });
-      
-      // Check if the selector and database are initialized
-      if (!selector) {
-        logToConsole("ERROR: Letter selector not initialized", selector);
-        throw new Error("Letter selector not initialized");
-      }
-      
-      if (!database) {
-        logToConsole("ERROR: Database not initialized", database);
-        throw new Error("Database not initialized");
-      }
-      
-      logToConsole("Getting selected letters...");
-      const letters = await selector.getSelectedLetters({
-        text: userTextInput.value || 'Type something...',
-        style: fontStyleSelect.value,
-        city: locationSelect.value,
-        caseOption: caseOptionSelect.value
-      });
-      
-      logToConsole(`Retrieved ${letters.length} letter objects`);
-      
-      // Log details about each letter
-      letters.forEach((lt, index) => {
-        if (lt.type === 'letter') {
-          const hasImage = lt.image !== undefined && lt.image !== null;
-          const imgInfo = hasImage ? {
-            hasWidth: 'width' in lt.image,
-            hasHeight: 'height' in lt.image,
-            width: lt.image.width,
-            height: lt.image.height,
-            hasSrc: 'src' in lt.image,
-            complete: lt.image.complete || false
-          } : 'No image';
-          
-          logToConsole(`Letter [${index}]: "${lt.value}", isFallback: ${lt.isFallback}`, imgInfo);
-        } else {
-          logToConsole(`Letter [${index}]: type=${lt.type}, value="${lt.value}"`);
-        }
-      });
-      
-      // Pass along the loaded image element, not just its URL
-      const rendererData = letters.map(lt => ({
-        type: lt.type,
-        value: lt.value,
-        image: lt.image,
-        isFallback: lt.isFallback
-      }));
+    const className = isWarning ? "warning-message" : "error-message";
+    
+    container.innerHTML = `
+      <div class="${className}">
+        <h3>${isWarning ? 'Warning' : 'Error'}</h3>
+        <p>${message}</p>
+        ${!isWarning ? '<p>Please check browser console for technical details.</p>' : ''}
+      </div>
+    `;
+  }
 
-      logToConsole("Rendering letters...");
-      renderer.renderLetters(rendererData);
-      logToConsole("Render complete");
-    } catch (error) {
-      logToConsole("ERROR: Failed to generate typography", error);
-      console.error('Error generating typography:', error);
+  // Update the canvas with new text and settings
+  async function updateCanvas() {
+    try {
+      // Show loading state
+      showLoading();
+      logger.log("Starting typography generation");
       
-      // Show error message
-      if (outputContainer) {
-        outputContainer.innerHTML = `
-          <div class="error-message">
-            <h3>Error</h3>
-            <p>Failed to generate typography: ${error.message}</p>
-          </div>
-        `;
+      // Check for empty text and set default if needed
+      const inputText = userTextInput.value.trim() || config.defaults.text;
+      userTextInput.value = inputText; // Update the input field
+      
+      // Get font style and location
+      const style = fontStyleSelect.value;
+      const location = locationSelect.value;
+      const caseOption = caseOptionSelect.value;
+      
+      // Log the input values
+      logger.log("Input values:", {
+        text: inputText,
+        style: style,
+        city: location,
+        caseOption: caseOption
+      });
+      
+      // Process text based on case option (like in old version)
+      let processedText = inputText;
+      if (caseOption === 'upper') {
+        processedText = inputText.toUpperCase();
+      } else if (caseOption === 'lower') {
+        processedText = inputText.toLowerCase();
       }
+      
+      try {
+        // Use the selector to handle all letter selection logic (direct from old version)
+        const letterArray = await selector.selectLettersForText(processedText, style, location);
+        
+        // Render the letters
+        renderer.renderLetters(letterArray);
+        
+        // Enable export and share buttons
+        if (exportBtn) exportBtn.disabled = false;
+        if (shareBtn) exportBtn.disabled = false;
+        
+        logger.log("Render complete");
+      } catch (error) {
+        logger.error("ERROR: Failed to generate typography", error);
+        console.error('Error generating typography:', error);
+        
+        // Show error message
+        showErrorMessage(outputContainer, `Failed to generate typography: ${error.message}`);
+      }
+    } catch (error) {
+      logger.error('Fatal error in updateCanvas:', error);
+      showErrorMessage(outputContainer, 'A fatal error occurred while updating the canvas.');
     } finally {
-      // Hide loading state
       hideLoading();
-      logToConsole("Generation process finished");
     }
   }
 
-  // Generate button
-  generateBtn.addEventListener('click', () => {
-    logToConsole("Generate button clicked");
-    updateCanvas();
-  });
-
-  // Export
-  exportBtn.addEventListener('click', () => {
-    logToConsole("Export button clicked");
-    renderer.exportAsImage();
-  });
-
-  // Share
-  shareBtn.addEventListener('click', () => {
-    logToConsole("Share button clicked");
-    if (!renderer.canvas) {
-      logToConsole("ERROR: Canvas not available for sharing");
-      return;
+  // Test directory structure
+  function testDirectoryStructure() {
+    logger.log("Running directory structure test...");
+    
+    // Create test message container
+    const testResults = document.createElement('div');
+    testResults.className = 'test-results';
+    testResults.innerHTML = `
+      <h3>Testing Directory Structure</h3>
+      <p>This will test different asset paths to find working letter images...</p>
+      <pre id="test-log" style="max-height: 300px; overflow: auto; background: #eee; padding: 10px;"></pre>
+    `;
+    
+    // Add to output container
+    outputContainer.innerHTML = '';
+    outputContainer.appendChild(testResults);
+    
+    const testLog = document.getElementById('test-log');
+    
+    // Create a test logger
+    function logTest(message) {
+      const timestamp = new Date().toISOString().substring(11, 23);
+      testLog.innerHTML += `[${timestamp}] ${message}\n`;
+      testLog.scrollTop = testLog.scrollHeight; // Auto-scroll to bottom
     }
     
-    try {
-      const dataURL = renderer.canvas.elt.toDataURL('image/png');
-      const win = window.open();
-      win.document.body.innerHTML = `<img src="${dataURL}" alt="Shared Typography" />`;
-      logToConsole("Typography shared in new window");
-    } catch (error) {
-      logToConsole("ERROR: Failed to share typography", error);
-      alert("Could not share the typography. Please try again.");
-    }
-  });
+    // Start testing
+    logTest('Starting asset path tests...');
+    
+    // Test a sample letter
+    const testLetter = 'A';
+    const testStyle = 'sans';
+    
+    // Test path existence
+    database.pathExists('assets/Alphabet/cities/NYC/alphabet/A/sans-upper/01.jpg')
+      .then(exists => {
+        logTest(`Test path exists: ${exists}`);
+        
+        if (exists) {
+          logTest('SUCCESS: Found asset path');
+          
+          // Add success message at the top
+          testResults.insertAdjacentHTML('afterbegin', `
+            <div style="background: #e6ffe6; border: 1px solid #99cc99; padding: 10px; margin-bottom: 10px; border-radius: 4px;">
+              <strong>Success!</strong> Found working asset path.
+            </div>
+          `);
+        } else {
+          logTest('WARNING: No working asset paths found. Using fallback letter generator.');
+          
+          // Add warning message at the top
+          testResults.insertAdjacentHTML('afterbegin', `
+            <div style="background: #fff8e6; border: 1px solid #ffcc80; padding: 10px; margin-bottom: 10px; border-radius: 4px;">
+              <strong>No asset paths found.</strong> The application will use generated SVG letters instead.
+            </div>
+          `);
+        }
+        
+        // Add a button to generate a test sample
+        testResults.insertAdjacentHTML('beforeend', `
+          <div style="margin-top: 10px;">
+            <button id="test-sample-btn" style="padding: 8px 16px;">Generate Test Sample</button>
+          </div>
+        `);
+        
+        // Add event listener for the test sample button
+        document.getElementById('test-sample-btn').addEventListener('click', () => {
+          updateCanvas();
+        });
+      });
+  }
 
-  // Initial render with a small delay to ensure everything is loaded
-  logToConsole("Scheduling initial render");
+  // Update font size
+  function updateFontSize() {
+    const sizes = ['SMALL', 'MEDIUM', 'LARGE'];
+    const currentSize = fontSizeToggle.textContent;
+    const currentIndex = sizes.indexOf(currentSize);
+    const nextIndex = (currentIndex + 1) % sizes.length;
+    const nextSize = sizes[nextIndex];
+    
+    fontSizeToggle.textContent = nextSize;
+    currentFontSize = nextSize.toLowerCase();
+    
+    // Set appropriate sizes on renderer
+    if (nextSize === 'SMALL') {
+      renderer.setLetterSpacing(5);
+      renderer.setLineHeight(60);
+    } else if (nextSize === 'MEDIUM') {
+      renderer.setLetterSpacing(10);
+      renderer.setLineHeight(100);
+    } else if (nextSize === 'LARGE') {
+      renderer.setLetterSpacing(15);
+      renderer.setLineHeight(140);
+    }
+    
+    logger.log(`Font size changed to: ${nextSize}`);
+    
+    // Re-render with new size
+    updateCanvas();
+  }
+
+  // Event listeners
+  if (generateBtn) {
+    generateBtn.addEventListener('click', updateCanvas);
+  }
+  
+  if (exportBtn) {
+    exportBtn.addEventListener('click', () => {
+      if (renderer) {
+        renderer.exportAsImage();
+      }
+    });
+  }
+  
+  if (shareBtn) {
+    shareBtn.addEventListener('click', () => {
+      if (renderer && renderer.canvas) {
+        try {
+          const dataURL = renderer.canvas.elt.toDataURL('image/png');
+          const win = window.open();
+          win.document.body.innerHTML = `<img src="${dataURL}" alt="Shared Typography" />`;
+        } catch (error) {
+          logger.error("ERROR: Failed to share typography", error);
+          alert("Could not share the typography. Please try again.");
+        }
+      }
+    });
+  }
+  
+  if (testPathsBtn) {
+    testPathsBtn.addEventListener('click', testDirectoryStructure);
+  }
+  
+  if (fontSizeToggle) {
+    fontSizeToggle.addEventListener('click', updateFontSize);
+  }
+
+  // Initial render with a small delay to let everything initialize
   setTimeout(() => {
-    logToConsole("Running initial render");
     updateCanvas();
   }, 500);
   
-  // Log when everything is loaded
-  logToConsole("Application initialization complete");
+  logger.log("Application initialization complete");
 });
-

@@ -5,6 +5,57 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>StreetType</title>
   <link rel="stylesheet" href="styles/main.css" />
+  <style>
+    /* Additional styles for error and warning messages */
+    .warning-message {
+      background-color: #fff8e6;
+      border: 1px solid #ffd761;
+      border-radius: 4px;
+      padding: 15px;
+      margin: 10px;
+      color: #856404;
+    }
+    
+    .error-message {
+      background-color: #fff0f0;
+      border: 1px solid #ffcccc;
+      border-radius: 4px;
+      padding: 15px;
+      margin: 10px;
+      color: #cc0000;
+    }
+    
+    .asset-warning {
+      background-color: rgba(255, 200, 200, 0.8);
+      color: #721c24;
+      padding: 10px;
+      margin: 10px;
+      border-radius: 4px;
+      text-align: center;
+      font-weight: bold;
+    }
+    
+    .test-results {
+      background-color: #f5f5f5;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 15px;
+      margin: 10px;
+    }
+    
+    /* Performance indicator */
+    .performance-stats {
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+      background: rgba(0, 0, 0, 0.7);
+      color: #fff;
+      padding: 5px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      z-index: 100;
+    }
+  </style>
 </head>
 <body>
   <div class="app-container">
@@ -18,18 +69,16 @@
         <!-- SETUP section -->
         <div class="section-label">SETUP</div>
         
-        <!-- FORMAT section removed -->
-        
         <!-- TEXT section -->
         <div class="section-label">TEXT</div>
         
         <!-- Title control -->
         <div class="control-group">
           <div class="control-header">
-            <h3>TITLE</h3>
-            <button class="toggle-btn">−</button>
+            <h3>TEXT</h3>
+            <button class="toggle-btn" data-target="text-control">−</button>
           </div>
-          <div class="control-content">
+          <div class="control-content" id="text-control">
             <div class="text-control">
               <input type="text" id="user-text" placeholder="Type something…">
               <div class="size-toggle" id="size-toggle">SMALL</div>
@@ -41,19 +90,19 @@
         <div class="control-group">
           <div class="control-header">
             <h3>STYLE</h3>
-            <button class="toggle-btn">−</button>
+            <button class="toggle-btn" data-target="style-control">−</button>
           </div>
-          <div class="select-control">
-            <label for="font-style">Font Style:</label>
-            <select id="font-style">
-              <option value="sans">Sans</option>
-              <option value="serif">Serif</option>
-              <option value="mono">Monospace</option>
-              <option value="script">Script</option>
-              <option value="decorative">Decorative</option>  <!-- Add this new option -->
-              <option value="random">Random Mix</option>      <!-- Random option -->
-            </select>
-          </div>
+          <div class="control-content" id="style-control">
+            <div class="select-control">
+              <label for="font-style">Font Style:</label>
+              <select id="font-style">
+                <option value="sans">Sans</option>
+                <option value="serif">Serif</option>
+                <option value="mono">Monospace</option>
+                <option value="script">Script</option>
+                <option value="random">Random Mix</option>
+              </select>
+            </div>
             <div class="select-control">
               <label for="location">Location:</label>
               <select id="location">
@@ -81,6 +130,13 @@
           <button id="export-btn" disabled>Export as Image</button>
           <button id="share-btn" disabled>Share</button>
         </div>
+
+        
+        <!-- Debug actions -->
+        <div class="section-label">DEBUG</div>
+        <div class="action-buttons">
+          <button id="test-paths-btn">Test Asset Paths</button>
+        </div>
       </div>
     </div>
     
@@ -93,42 +149,28 @@
   
   <!-- Load p5 globally first -->
   <script src="https://cdn.jsdelivr.net/npm/p5/lib/p5.min.js"></script>
-  <!-- Then load your module-based app code -->
+  
+  <!-- Load ES module script -->
   <script type="module" src="scripts/app.js"></script>
   
   <!-- Additional script for controls -->
   <script>
     document.addEventListener('DOMContentLoaded', function() {
-      // Size toggle
-      const sizeToggle = document.getElementById('size-toggle');
-      if (sizeToggle) {
-        sizeToggle.addEventListener('click', function() {
-          if (this.textContent === 'SMALL') {
-            this.textContent = 'MEDIUM';
-          } else if (this.textContent === 'MEDIUM') {
-            this.textContent = 'LARGE';
-          } else {
-            this.textContent = 'SMALL';
-          }
-          
-          // If you need to notify your p5 sketch about the size change
-          if (window.updateFontSize) {
-            window.updateFontSize(this.textContent.toLowerCase());
-          }
-        });
-      }
-      
       // Toggle buttons for control sections
       const toggleBtns = document.querySelectorAll('.toggle-btn');
       toggleBtns.forEach(btn => {
         btn.addEventListener('click', function() {
-          const content = this.closest('.control-group').querySelector('.control-content');
-          if (content.style.display === 'none') {
-            content.style.display = 'block';
-            this.textContent = '−';
-          } else {
-            content.style.display = 'none';
-            this.textContent = '+';
+          const targetId = this.getAttribute('data-target');
+          const content = document.getElementById(targetId);
+          
+          if (content) {
+            if (content.style.display === 'none') {
+              content.style.display = 'block';
+              this.textContent = '−';
+            } else {
+              content.style.display = 'none';
+              this.textContent = '+';
+            }
           }
         });
       });

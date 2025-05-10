@@ -1,98 +1,142 @@
-// scripts/database.js
+// scripts/database.js - FIXED VERSION
+// With support for Numbers and Symbols folders
+
+import { generateFallbackLetterSVG } from './utils.js';
 
 export default class LetterDatabase {
   constructor() {
     this.letterCache = {};       // Cache loaded Image objects
     this.loadingPromises = {};   // Ongoing load promises
+    this.pathExistsCache = {};   // Cache results of pathExists checks
+    this.assetsDetected = false; // Flag to track if we've detected any assets
+    
+    // Check for assets once to avoid excessive 404s
+    this._checkForAssets();
+  }
+  
+  /**
+   * Quick check to see if any assets exist to reduce 404 errors
+   */
+  async _checkForAssets() {
+    // Test a few common paths and variants
+    const testCases = [
+      // Test sans-serif uppercase
+      'assets/Alphabet/cities/NYC/alphabet/A/sans-upper/01.jpg',
+      'assets/alphabet/NYC/A/sans-upper/01.jpg',
+      'assets/alphabet/cities/NYC/alphabet/A/sans-upper/01.jpg',
+      
+      // Test sans-serif lowercase
+      'assets/Alphabet/cities/NYC/alphabet/a/sans-lower/01.jpg',
+      'assets/alphabet/NYC/a/sans-lower/01.jpg',
+      
+      // Test serif
+      'assets/Alphabet/cities/NYC/alphabet/A/serif-upper/01.jpg',
+      'assets/alphabet/NYC/A/serif-upper/01.jpg',
+      
+      // Basic tests without cities subfolder
+      'assets/A/sans-upper/01.jpg',
+      'assets/alphabet/A/sans-upper/01.jpg',
+      
+      // Test numbers folder (both standalone and nested structures)
+      'assets/Numbers/1/01.jpg',
+      'assets/numbers/1/01.jpg',
+      
+      // Test symbols folder at root level
+      'assets/Symbols/period/01.jpg',
+      'assets/symbols/period/01.jpg',
+      'assets/Symbols/exclamation/01.jpg',
+    ];
+    
+    console.log('Checking for asset availability...');
+    
+    // Check each category separately
+    let alphabetAssetsFound = false;
+    let numberAssetsFound = false;
+    let symbolAssetsFound = false;
+    
+    // Try each test path
+    for (const testPath of testCases) {
+      const exists = await this.pathExists(testPath);
+      
+      if (exists) {
+        this.assetsDetected = true;
+        console.log(`Assets detected at path: ${testPath}`);
+        
+        // Determine which category this belongs to
+        if (testPath.includes('Numbers') || testPath.includes('numbers')) {
+          numberAssetsFound = true;
+        } else if (testPath.includes('Symbols') || testPath.includes('symbols')) {
+          symbolAssetsFound = true;
+        } else {
+          alphabetAssetsFound = true;
+        }
+      }
+    }
+    
+    this.pathExistsCache.checked = true;
+    
+    // Log what we found
+    console.log(`Asset detection complete: 
+      - Alphabet assets: ${alphabetAssetsFound ? 'FOUND' : 'NOT FOUND'}
+      - Number assets: ${numberAssetsFound ? 'FOUND' : 'NOT FOUND'}
+      - Symbol assets: ${symbolAssetsFound ? 'FOUND' : 'NOT FOUND'}
+    `);
+    
+    if (!this.assetsDetected) {
+      console.warn('No assets detected. Will use SVG fallbacks.');
+    } else {
+      console.log('Assets detected and available.');
+    }
   }
 
   /**
    * Test whether an image URL actually exists by letting the browser try to load it.
-   * Includes timeout to prevent hanging requests
    * @param {string} path
    * @returns {Promise<boolean>}
    */
   async pathExists(path) {
-    if (!path || typeof path !== 'string') {
-      console.warn('[PATH CHECK] Invalid path provided:', path);
+    // Check cache first
+    if (path in this.pathExistsCache) {
+      const result = this.pathExistsCache[path];
+      console.log(`Path cache hit: ${path}, exists: ${result}`);
+      return result;
+    }
+    
+    // Skip checking if we already know no assets exist
+    if (this.pathExistsCache.checked && !this.assetsDetected) {
+      console.log(`Skipping check for ${path} - no assets detected`);
       return false;
     }
-
-    console.log(`[PATH CHECK] Checking if path exists: ${path}`);
+    
+    console.log(`Testing path: ${path}`);
     
     return new Promise(resolve => {
       const img = new Image();
-      const timeout = setTimeout(() => {
-        img.src = ''; // Cancel request
-        console.warn(`[PATH CHECK] Timeout loading: ${path}`);
+      
+      // Set a timeout to avoid waiting too long
+      const timeoutId = setTimeout(() => {
+        console.log(`Timeout checking path: ${path}`);
+        this.pathExistsCache[path] = false;
         resolve(false);
-      }, 3000); // 3 second timeout
+      }, 1000);
       
       img.onload = () => {
-        clearTimeout(timeout);
-        console.log(`[PATH CHECK] Successfully loaded: ${path}`);
+        clearTimeout(timeoutId);
+        console.log(`Path exists: ${path}`);
+        this.pathExistsCache[path] = true;
         resolve(true);
       };
       
       img.onerror = () => {
-        clearTimeout(timeout);
-        console.warn(`[PATH CHECK] Failed to load: ${path}`);
+        clearTimeout(timeoutId);
+        console.log(`Path does not exist: ${path}`);
+        this.pathExistsCache[path] = false;
         resolve(false);
       };
       
-      img.src = path;
+      // Add cache buster to avoid browser caching
+      img.src = `${path}?t=${Date.now()}`;
     });
-  }
-
-  /**
-   * Generate a fallback path for a character
-   * @param {string} character A single alphanumeric character
-   * @param {string} styleKey One of: "sans", "serif", "mono", "script", etc.
-   * @returns {string} URL to a fallback image or SVG data URL
-   */
-  getFallbackPath(character, styleKey) {
-    // Check if the character is valid alphanumeric
-    if (!/^[a-zA-Z0-9]$/.test(character)) {
-      console.warn(`[FALLBACK] Invalid character for fallback: ${character}`);
-      character = '?'; // Use question mark as ultimate fallback
-    }
-    
-    // Create SVG data URL directly instead of trying to load files
-    // Get appropriate style based on styleKey
-    const styleDir = LetterDatabase.styleFolderMap[styleKey] || 'sans';
-    const font = this._getFontFamilyForStyle(styleDir);
-    
-    // Generate SVG inline
-    const svg = `
-      <svg xmlns="http://www.w3.org/2000/svg" width="40" height="60" viewBox="0 0 40 60">
-        <rect width="40" height="60" fill="#f0f0f0" stroke="#ccc" stroke-width="1"/>
-        <text x="20" y="35" font-family="${font}" font-size="30" fill="#333" text-anchor="middle" dominant-baseline="middle">${character}</text>
-      </svg>`;
-    
-    console.log(`[FALLBACK] Generated SVG fallback for "${character}" with style "${styleKey}"`);
-    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
-  }
-
-  /**
-   * Get appropriate font family for a style
-   * @param {string} style Style name
-   * @returns {string} Font family CSS string
-   */
-  _getFontFamilyForStyle(style) {
-    switch (style) {
-      case 'sans':
-        return 'Arial, Helvetica, sans-serif';
-      case 'serif':
-        return 'Georgia, "Times New Roman", serif';
-      case 'monospace':
-        return '"Courier New", Courier, monospace';
-      case 'script':
-        return '"Comic Sans MS", cursive, sans-serif';
-      case 'decorative':
-        return 'Impact, fantasy';
-      default:
-        return 'sans-serif';
-    }
   }
 
   /**
@@ -103,203 +147,253 @@ export default class LetterDatabase {
     serif:      'serif',      // "serif" → "serif"
     mono:       'monospace',  // "mono" → "monospace"
     script:     'script',     // "script" → "script"
-    decorative: 'decorative'  // "decorative" → "decorative"
+    decorative: 'decorative', // if you add "decorative"
+    random:     'sans'        // random will pick a random style per letter
   };
 
   /**
    * Build the path for a character's numbered JPG variant.
    * Returns null for unsupported characters.
    *
-   * @param {string} character    A single alphanumeric character
+   * @param {string} character    A single alphanumeric character or symbol
    * @param {string} styleKey     One of: "sans", "serif", "mono", "script", etc.
    * @param {string} location     City code (e.g. "NYC")
    * @param {number} variantIndex 1-based index to pick 01.jpg → 05.jpg
    * @returns {string|null} URL relative to web root
    */
   getLetterPath(character, styleKey, location, variantIndex = 1) {
-    // Validate input parameters
-    if (!character || typeof character !== 'string') {
-      console.warn('[PATH BUILD] Invalid character provided:', character);
-      return null;
+    // Format the variant index as a two-digit string
+    const idx = String(variantIndex).padStart(2, '0');
+    
+    // Handle numbers (0-9)
+    if (/^[0-9]$/.test(character)) {
+      // For numbers, use the root Numbers folder - style independent
+      return [
+        'assets',
+        'Numbers',
+        character,
+        `${idx}.jpg`
+      ].join('/');
     }
     
-    if (!styleKey || typeof styleKey !== 'string') {
-      console.warn('[PATH BUILD] Invalid style key provided:', styleKey);
-      return null;
+    // Handle common symbols with special naming
+    const symbolRegex = /^[!@#$%^&*()_+\-=[\]{}|;':",./<>?]$/;
+    if (symbolRegex.test(character)) {
+      let symbolName = 'symbol'; // Default name
+      
+      // Map symbols to folder names
+      const symbolMap = {
+        '!': 'exclamation',
+        '?': 'question',
+        '.': 'period',
+        ',': 'comma',
+        ':': 'colon',
+        ';': 'semicolon',
+        '"': 'quote',
+        "'": 'apostrophe',
+        '(': 'parenthesis-open',
+        ')': 'parenthesis-close',
+        '[': 'bracket-open',
+        ']': 'bracket-close',
+        '{': 'brace-open',
+        '}': 'brace-close',
+        '<': 'angle-open',
+        '>': 'angle-close',
+        '+': 'plus',
+        '-': 'minus',
+        '*': 'asterisk',
+        '/': 'slash',
+        '\\': 'backslash',
+        '|': 'vertical-bar',
+        '=': 'equals',
+        '@': 'at',
+        '#': 'hash',
+        '$': 'dollar',
+        '%': 'percent',
+        '^': 'caret',
+        '&': 'ampersand',
+        '_': 'underscore'
+      };
+      
+      if (character in symbolMap) {
+        symbolName = symbolMap[character];
+      }
+      
+      // For symbols, use the root Symbols folder - style independent
+      return [
+        'assets',
+        'Symbols',
+        symbolName,
+        `${idx}.jpg`
+      ].join('/');
     }
     
-    if (!location || typeof location !== 'string') {
-      console.warn('[PATH BUILD] Invalid location provided:', location);
-      return null;
+    // Handle alpha characters (a-z, A-Z)
+    if (/^[a-zA-Z]$/.test(character)) {
+      const letter = character.toUpperCase();                  // "A"
+      const caseType = character === letter ? 'upper' : 'lower'; // "upper" or "lower"
+      const styleDir = LetterDatabase.styleFolderMap[styleKey];
+      
+      if (!styleDir) {
+        console.error(`Unknown style key: ${styleKey}`);
+        return null;
+      }
+      
+      // e.g. assets/Alphabet/cities/NYC/alphabet/A/sans-upper/01.jpg
+      return [
+        'assets',
+        'Alphabet',
+        'cities',
+        location,
+        'alphabet',
+        letter,
+        `${styleDir}-${caseType}`,
+        `${idx}.jpg`
+      ].join('/');
     }
-
-    if (!/^[a-zA-Z0-9]$/.test(character)) {
-      console.warn(`[PATH BUILD] Unsupported character: "${character}"`);
-      return null;
-    }
-
-    const letter = character.toUpperCase();                    // "A"
-    const caseType = character === letter ? 'upper' : 'lower';   // "upper" or "lower"
-    const idx = String(variantIndex).padStart(2, '0');      // "01", "02", …
-    const styleDir = LetterDatabase.styleFolderMap[styleKey];
-
-    if (!styleDir) {
-      console.error(`[PATH BUILD] Unknown style key: "${styleKey}"`);
-      return null;
-    }
-
-    // FIXED: Construct path based on actual folder structure
-    // Remove the letter folder from the path
-    const path = `../assets/Alphabet/cities/${location}/alphabet/${letter}/${styleDir}-${caseType}/${idx}.jpg`;
     
-    console.log(`[PATH BUILD] Generated path: ${path}`);
-    return path;
+    // Unsupported character
+    return null;
   }
 
   /**
-   * Gather up to 5 numbered variants (01–05). Only returns those that actually exist.
-   * Improved with better error handling and fallbacks.
+   * Gather up to 3 numbered variants (01–03). Only returns those that actually exist.
+   * If none exist, returns an SVG fallback URL.
    *
    * @param {string} character
    * @param {string} styleKey
    * @param {string} location
+   * @param {boolean} skipFallback - If true, don't generate SVG fallback when no variants found
    * @returns {Promise<string[]>} Array of existing URLs
    */
-  async getLetterVariants(character, styleKey, location) {
-    console.log(`[VARIANTS] Looking for variants of "${character}" in style "${styleKey}" for location "${location}"`);
+  async getLetterVariants(character, styleKey, location, skipFallback = false) {
+    // If we know no assets exist, return SVG fallback immediately
+    if (this.pathExistsCache.checked && !this.assetsDetected && !skipFallback) {
+      const fullStyle = `${styleKey}-${character === character.toUpperCase() ? 'upper' : 'lower'}`;
+      const svgUrl = generateFallbackLetterSVG(character, fullStyle);
+      return [svgUrl];
+    }
+    
     const found = [];
 
-    try {
-      for (let i = 1; i <= 5; i++) {
-        const path = this.getLetterPath(character, styleKey, location, i);
-        if (!path) {
-          console.warn(`[VARIANTS] Could not generate path for variant ${i}`);
-          continue;
+    // Check if character is a number or symbol
+    const isNumber = /^[0-9]$/.test(character);
+    const isSymbol = /^[!@#$%^&*()_+\-=[\]{}|;':",./<>?]$/.test(character);
+    
+    // Try alternative paths for numbers and symbols (different cases, folder structures)
+    if (isNumber || isSymbol) {
+      // Get the primary path from getLetterPath method
+      const primaryPath = this.getLetterPath(character, styleKey, location, 1);
+      
+      if (primaryPath) {
+        // Check if this path exists
+        const exists = await this.pathExists(primaryPath);
+        if (exists) {
+          found.push(primaryPath);
         }
         
-        console.log(`[VARIANTS] Checking variant ${i}: ${path}`);
-        const exists = await this.pathExists(path);
-        if (exists) {
-          console.log(`[VARIANTS] Found valid variant ${i}: ${path}`);
-          found.push(path);
-        } else {
-          console.warn(`[VARIANTS] Variant ${i} doesn't exist: ${path}`);
+        // Try additional variants
+        for (let i = 2; i <= 3; i++) {
+          const variantPath = this.getLetterPath(character, styleKey, location, i);
+          if (variantPath) {
+            const exists = await this.pathExists(variantPath);
+            if (exists) {
+              found.push(variantPath);
+            }
+          }
         }
       }
-    } catch (err) {
-      console.error(`[VARIANTS] Error checking variants for "${character}":`, err);
-    }
-
-    if (found.length === 0) {
-      const fallbackPath = this.getFallbackPath(character, styleKey);
-      console.warn(`[VARIANTS] No variants found, using fallback: ${fallbackPath.substring(0, 50)}...`);
-      found.push(fallbackPath);
     } else {
-      console.log(`[VARIANTS] Found ${found.length} variants for "${character}"`);
+      // Regular letter handling
+      // Only check first 3 variants to reduce 404s
+      for (let i = 1; i <= 3; i++) {
+        const path = this.getLetterPath(character, styleKey, location, i);
+        if (path) {
+          const exists = await this.pathExists(path);
+          if (exists) {
+            found.push(path);
+          }
+        }
+      }
+    }
+    
+    // If no variants found and not skipping fallbacks, add SVG fallback URL
+    if (found.length === 0 && !skipFallback) {
+      // The combined style with case information
+      let fullStyle;
+      
+      // For letters, use case-specific style
+      if (/^[a-zA-Z]$/.test(character)) {
+        fullStyle = `${styleKey}-${character === character.toUpperCase() ? 'upper' : 'lower'}`;
+      } else {
+        // For numbers and symbols, just use the base style
+        fullStyle = styleKey;
+      }
+      
+      // Generate SVG data URL
+      const svgUrl = generateFallbackLetterSVG(character, fullStyle);
+      found.push(svgUrl);
     }
 
     return found;
   }
 
   /**
-   * Helper method to create a minimal valid image object
-   * Used when image loading fails
-   * @returns {Object} A minimal object with width/height properties
-   */
-  _createMinimalImageObject() {
-    return {
-      width: 40,
-      height: 60,
-      naturalWidth: 40,
-      naturalHeight: 60
-    };
-  }
-
-  /**
    * Load an image (or previously found variant) and cache it.
-   * Improved with better error handling.
    * @param {string} path
-   * @returns {Promise<HTMLImageElement|Object>}
+   * @returns {Promise<HTMLImageElement|null>}
    */
   async loadImage(path) {
-    if (!path) {
-      console.error(`[IMAGE LOAD] Invalid path: ${path}`);
-      return this._createMinimalImageObject();
+    if (!path) return null;
+    
+    // If this is an SVG data URL, create a simple image object
+    if (path.startsWith('data:image/svg+xml')) {
+      const img = new Image();
+      img.src = path;
+      console.log(`Created SVG fallback image for: ${path.substring(0, 30)}...`);
+      return img; // Return immediately without waiting for load
     }
     
     if (this.letterCache[path]) {
-      console.log(`[IMAGE LOAD] Using cached image: ${path}`);
+      console.log(`Cache hit for image: ${path}`);
       return this.letterCache[path];
     }
     
     if (this.loadingPromises[path]) {
-      console.log(`[IMAGE LOAD] Already loading: ${path}`);
+      console.log(`Already loading image: ${path}`);
       return this.loadingPromises[path];
     }
 
-    console.log(`[IMAGE LOAD] Loading image: ${path.substring(0, 100)}`);
-    
-    this.loadingPromises[path] = new Promise((resolve) => {
-      // Check if this is a data URL
-      if (path.startsWith('data:')) {
-        console.log(`[IMAGE LOAD] Loading from data URL`);
-        const img = new Image();
-        
-        const timeout = setTimeout(() => {
-          console.warn(`[IMAGE LOAD] Data URL image load timeout`);
-          delete this.loadingPromises[path];
-          resolve(this._createMinimalImageObject());
-        }, 5000);
-        
-        img.onload = () => {
-          clearTimeout(timeout);
-          console.log(`[IMAGE LOAD] Data URL loaded successfully, dimensions: ${img.width}x${img.height}`);
-          this.letterCache[path] = img;
-          delete this.loadingPromises[path];
-          resolve(img);
-        };
-        
-        img.onerror = () => {
-          clearTimeout(timeout);
-          console.error(`[IMAGE LOAD] Failed to load data URL image`);
-          delete this.loadingPromises[path];
-          resolve(this._createMinimalImageObject());
-        };
-        
-        img.src = path;
-        return;
-      }
-      
-      // Normal file path loading
+    console.log(`Loading image: ${path}`);
+    this.loadingPromises[path] = new Promise((resolve, reject) => {
       const img = new Image();
       
-      const timeout = setTimeout(() => {
-        console.warn(`[IMAGE LOAD] Timeout loading: ${path}`);
+      // Set timeout to avoid hanging
+      const timeoutId = setTimeout(() => {
         delete this.loadingPromises[path];
-        resolve(this._createMinimalImageObject());
+        console.error(`Timeout loading image: ${path}`);
+        reject(new Error(`Timeout loading image: ${path}`));
       }, 5000);
       
       img.onload = () => {
-        clearTimeout(timeout);
-        console.log(`[IMAGE LOAD] Successfully loaded: ${path}, dimensions: ${img.width}x${img.height}`);
+        clearTimeout(timeoutId);
         this.letterCache[path] = img;
         delete this.loadingPromises[path];
+        console.log(`Successfully loaded image: ${path}`);
         resolve(img);
       };
       
       img.onerror = () => {
-        clearTimeout(timeout);
-        console.error(`[IMAGE LOAD] Failed to load: ${path}`);
+        clearTimeout(timeoutId);
         delete this.loadingPromises[path];
-        resolve(this._createMinimalImageObject());
+        console.error(`Failed to load image: ${path}`);
+        reject(new Error(`Failed to load image: ${path}`));
       };
       
-      img.src = path;
+      // Add cache buster to avoid browser caching
+      img.src = `${path}?t=${Date.now()}`;
     });
 
     return this.loadingPromises[path];
   }
 }
-
-
-
